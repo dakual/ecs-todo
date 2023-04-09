@@ -1,0 +1,40 @@
+.dev:
+  variables:
+    TF_WORKSPACE: todo-dev
+  
+dev:infra:validate:
+  extends: 
+    - .dev
+    - .terraform:validate
+
+dev:infra:plan:
+  extends: 
+    - .dev
+    - .terraform:plan
+  needs:
+    - dev:infra:validate
+
+dev:infra:apply:
+  extends: 
+    - .dev
+    - .terraform:apply
+  needs:
+    - dev:infra:plan
+  when: manual
+
+dev:infra:destroy-plan:
+  extends: 
+    - .dev
+    - .terraform:destroy-plan
+  needs:
+    - dev:infra:validate
+  when: manual
+
+dev:infra:destroy-apply:
+  extends:
+    - .dev
+    - .terraform:destroy-apply
+  needs:
+    - dev:infra:destroy-plan
+  when: manual
+  

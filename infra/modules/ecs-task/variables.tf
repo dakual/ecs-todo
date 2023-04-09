@@ -1,0 +1,12 @@
+variable "name" {}
+variable "app" {}
+variable "ecs_task_role" {}
+variable "ecs_log_group" {}
+variable "region" {}
+variable "environment" {}
+variable "ecs_cluster_id" {}
+variable "ecs_cluster_name" {}
+variable "ecs_task_sg" {}
+variable "subnets" {}
+variable "alb_tg_arn" {}
+variable "container_env" {}

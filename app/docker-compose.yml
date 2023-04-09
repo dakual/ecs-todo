@@ -1,0 +1,58 @@
+version: '3.1'
+
+services:
+  mysqldb:
+    image: arm64v8/mysql
+    env_file: ./.env
+    environment:
+      - MYSQL_ROOT_PASSWORD=$MYSQLDB_ROOT_PASSWORD
+      - MYSQL_DATABASE=$MYSQLDB_DATABASE
+    ports:
+      - $MYSQLDB_LOCAL_PORT:$MYSQLDB_DOCKER_PORT
+    volumes:
+      - db:/var/lib/mysql
+    networks:
+      - backend
+    healthcheck:
+      test: mysqladmin ping -h 127.0.0.1 -u $$MYSQLDB_USER --password=$$MYSQLDB_ROOT_PASSWORD
+      start_period: 5s
+      interval: 5s
+      timeout: 5s
+      retries: 55
+
+  backend:
+    build: ./backend
+    env_file: ./.env
+    environment:
+      - DB_HOST=$MYSQLDB_HOST
+      - DB_USER=$MYSQLDB_USER
+      - DB_PASS=$MYSQLDB_ROOT_PASSWORD
+      - DB_NAME=$MYSQLDB_DATABASE
+      - DB_PORT=$MYSQLDB_DOCKER_PORT
+    ports:
+      - $BACKEND_LOCAL_PORT:$NODE_PORT
+    depends_on:
+      mysqldb:
+        condition: service_healthy
+    networks:
+      - backend
+      - frontend
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        - REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
+    ports:
+      - $FRONTEND_LOCAL_PORT:$FRONTEND_NODE_PORT
+    depends_on:
+      - backend
+    networks:
+      - frontend  
+
+volumes: 
+  db:
+
+networks:
+  backend:
+  frontend:

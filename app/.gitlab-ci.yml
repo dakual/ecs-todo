@@ -1,0 +1,4 @@
+include:
+  - project: "ecs-todo/ci-templates"
+    ref: main
+    file: "app/main.yml"

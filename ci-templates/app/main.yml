@@ -1,0 +1,125 @@
+include:
+  - local: 'app/environments/dev.yml'
+    rules:
+      - if: $CI_COMMIT_TAG !~ /release-v.*/ && $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+  - local: 'app/environments/prd.yml'
+    rules:
+      - if: $CI_COMMIT_TAG =~ /release-v.*/
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_TAG =~ /release-v.*/'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+
+
+stages:
+  - build
+  - package
+  - deploy
+  - initialize
+  - release
+  - destroy
+
+
+.dev-rules:
+  rules:
+    - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH && $CI_COMMIT_TAG !~ /release-v.*/
+
+.dev-destroy-rules:
+  rules:
+    - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH && $CI_COMMIT_TAG !~ /release-v.*/
+      when: manual
+
+.prd-rules:
+  rules:
+    - if: $CI_COMMIT_TAG =~ /release-v.*/
+
+.prd-destroy-rules:
+  rules:
+    - if: $CI_COMMIT_TAG =~ /release-v.*/
+      when: manual
+
+
+.custom-image:
+  image: docker:latest
+  before_script:
+    - apk add --update --no-cache aws-cli jq
+    - apk add --update --no-cache mysql-dev mysql-client
+  tags:
+    - ${RUNNER}
+
+
+.build:
+  stage: build
+  extends:
+    - .custom-image
+  services:
+    - docker:dind
+  script:
+    - cd ${APP}
+    - REPOSITORY=$(aws ecr describe-repositories --repository-name ${APP} --region ${REGION} --query "repositories[].repositoryUri" --output text)
+    - aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin $REPOSITORY
+    - docker build --no-cache ${BUILD_ARGS} --tag $REPOSITORY:$IMAGE_TAG .
+    - docker push $REPOSITORY:$IMAGE_TAG
+
+
+
+.deploy:
+  stage: deploy
+  extends:
+    - .custom-image
+  script:
+    - NEW_IMAGE=$(aws ecr describe-repositories --repository-name ${APP} --region ${REGION} --query "repositories[].repositoryUri" --output text):${IMAGE_TAG}
+    - CURRENT_TASK=$(aws ecs describe-task-definition --region ${REGION} --task-definition "${APP}")
+    - NEW_TASK=$(echo $CURRENT_TASK | jq --arg IMAGE "${NEW_IMAGE}" '.taskDefinition | .containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn) | del(.revision) | del(.status) | del(.requiresAttributes) | del(.compatibilities) | del(.registeredAt) | del(.registeredBy)')
+    - NEW_TASK_INFO=$(aws ecs register-task-definition --region ${REGION} --cli-input-json "$NEW_TASK")
+    - NEW_REVISION=$(echo $NEW_TASK_INFO | jq '.taskDefinition.revision')
+    - UPDATE_SERVICE=$(aws ecs update-service --cluster ${CLUSTER_NAME} --region ${REGION} --service ${APP} --task-definition "${APP}:$NEW_REVISION")
+    - echo $UPDATE_SERVICE
+
+
+
+.init-db:
+  stage: initialize
+  extends:
+    - .custom-image
+  script:
+    # - mysql --user="${MYSQL_USER}" --password="${MYSQL_PASSWORD}" --host="${MYSQL_HOST}" --port="${MYSQL_PORT}" --execute="CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\`"
+    - mysql --user="${MYSQL_USER}" --password="${MYSQL_PASSWORD}" --host="${MYSQL_HOST}" --port="${MYSQL_PORT}" ${MYSQL_DATABASE} < "db-scripts/init-db.sql"
+
+
+
+.seed-db:
+  stage: initialize
+  extends:
+    - .custom-image
+  script:
+    - mysql --user="${MYSQL_USER}" --password="${MYSQL_PASSWORD}" --host="${MYSQL_HOST}" --port="${MYSQL_PORT}" ${MYSQL_DATABASE} < "db-scripts/seed-db.sql"
+
+
+
+.release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  script:
+    - echo "running release job"
+  release: 
+    tag_name: '$CI_COMMIT_TAG'
+    description: '$CI_COMMIT_TAG'
+    assets:
+      links:
+        - name: 'Docker Container'
+          url: 'https://${CI_REGISTRY_IMAGE}:${CI_COMMIT_TAG}'
+
+
+
+.destroy:
+  stage: destroy
+  extends:
+    - .custom-image
+  script:
+    - exho Destroyed.
+    # - apk add --update mysql-dev mysql-client
+    # - mysql --user="${MYSQL_USER}" --password="${MYSQL_PASSWORD}" --host="${MYSQL_HOST}" --port="${MYSQL_PORT}" --execute="DROP DATABASE IF EXISTS \`${MYSQL_DATABASE}\`"

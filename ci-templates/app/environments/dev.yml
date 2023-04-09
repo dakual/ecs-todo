@@ -1,0 +1,90 @@
+variables:
+  RUNNER: dev
+  ENV: dev
+  ENV_LONG: development
+  REGION: eu-central-1
+  DOMAIN: ${ENV}.kruta.link
+  BACKEND_URL: https://api-${DOMAIN}/api
+  NAMESPACE: ${ENV}-${CI_COMMIT_REF_SLUG}
+  MYSQL_HOST: "todo-dev.cjmsfphwzfjt.eu-central-1.rds.amazonaws.com"
+  MYSQL_PORT: 3306
+  MYSQL_USER: admin
+  MYSQL_PASSWORD: yPwUv42Uc5OeGtdv
+  MYSQL_DATABASE: todo
+  CLUSTER_NAME: todo-dev
+  IMAGE_TAG: ${ENV}-${CI_COMMIT_REF_SLUG}
+
+
+dev:build:frontend:
+  variables:
+    APP: frontend
+    BUILD_ARGS: '--build-arg REACT_APP_BACKEND_URL=${BACKEND_URL}'
+  extends: 
+    - .dev-rules
+    - .build
+
+
+dev:build:backend:
+  variables:
+    APP: backend
+  extends: 
+    - .dev-rules
+    - .build
+
+
+dev:deploy:frontend:
+  variables:
+    APP: frontend
+  extends: 
+    - .dev-rules
+    - .deploy
+  needs:
+    - dev:build:frontend
+  resource_group: ${ENV_LONG}
+  environment:
+    name: ${ENV_LONG}
+    url: https://${DOMAIN}
+    deployment_tier: development
+  
+
+dev:deploy:backend:
+  variables:
+    APP: backend
+  extends: 
+    - .dev-rules
+    - .deploy
+  needs:
+    - dev:build:backend
+  resource_group: ${ENV_LONG}
+  environment:
+    name: ${ENV_LONG}
+    url: https://${DOMAIN}
+    deployment_tier: development
+
+
+dev:init-db:
+  extends:
+    - .init-db
+  needs:
+    - dev:deploy:frontend
+    - dev:deploy:backend
+
+
+dev:seed-db:
+  extends:
+    - .seed-db
+  needs:
+    - dev:init-db
+
+
+dev:destroy:
+  extends: 
+    - .dev-destroy-rules
+    - .destroy
+  environment:
+    name: ${ENV_LONG}
+    action: stop
+  needs:
+    - dev:deploy:frontend
+    - dev:deploy:backend
+
